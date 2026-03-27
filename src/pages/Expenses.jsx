@@ -34,6 +34,7 @@ export default function Expenses() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const inputRefs = useRef({});
+  const formTopRef = useRef(null);
 
   const vf = currentVacation?.settings?.visibleFields || {};
   const sharedMode = currentVacation?.settings?.sharedMode;
@@ -98,7 +99,11 @@ export default function Expenses() {
     await refreshExpenses();
     resetForm();
     setShowAddForm(false);
-    setTimeout(() => { setShowAddForm(true); inputRefs.current['name']?.focus(); }, 100);
+    setTimeout(() => {
+      setShowAddForm(true);
+      formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => inputRefs.current['name']?.focus(), 80);
+    }, 100);
   };
 
   const handleEdit = async () => {
@@ -179,7 +184,7 @@ export default function Expenses() {
   };
 
   return (
-    <div style={s.page}>
+    <div style={s.page} ref={formTopRef}>
       {/* Quick Add Button */}
       {!showAddForm && (
         <motion.button

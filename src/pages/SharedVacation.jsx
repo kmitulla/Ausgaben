@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useVacation } from '../contexts/VacationContext';
+import { useAuth } from '../contexts/AuthContext';
 import { updateVacation } from '../utils/db';
 import { calculateDebts } from '../utils/db';
 import { exportSharedVacationExcel, exportSharedVacationPDF, exportAsImage } from '../utils/exportUtils';
@@ -83,6 +84,8 @@ const styles = {
     color: '#fff',
     fontWeight: 700,
     fontSize: '0.85rem',
+    lineHeight: '36px',
+    textAlign: 'center',
     flexShrink: 0,
   }),
   participantName: {
@@ -341,15 +344,23 @@ function formatCurrency(amount, currency = 'EUR') {
 
 export default function SharedVacation() {
   const { currentVacation, expenses, refreshVacation } = useVacation();
+  const { currentUser } = useAuth();
   const [newParticipant, setNewParticipant] = useState('');
   const [showSettlements, setShowSettlements] = useState(false);
   const [expandedPerson, setExpandedPerson] = useState(null);
   const [removeConfirm, setRemoveConfirm] = useState(null);
+
+  const getSectionStored = (key, fallback) => {
+    if (!currentUser) return fallback;
+    const stored = localStorage.getItem(`shared_section_${currentUser.id}_${key}`);
+    return stored !== null ? stored === 'true' : fallback;
+  };
+
   const [sectionsOpen, setSectionsOpen] = useState({
-    participants: true,
-    summary: true,
-    breakdown: false,
-    export: false,
+    participants: getSectionStored('participants', true),
+    summary: getSectionStored('summary', true),
+    breakdown: getSectionStored('breakdown', false),
+    export: getSectionStored('export', false),
   });
 
   const participants = currentVacation?.settings?.participants || [];
@@ -387,7 +398,13 @@ export default function SharedVacation() {
   }, [expenses, participants]);
 
   const toggleSection = (key) => {
-    setSectionsOpen(prev => ({ ...prev, [key]: !prev[key] }));
+    setSectionsOpen(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (currentUser) {
+        localStorage.setItem(`shared_section_${currentUser.id}_${key}`, String(next[key]));
+      }
+      return next;
+    });
   };
 
   const handleAddParticipant = async () => {
@@ -425,8 +442,13 @@ export default function SharedVacation() {
     exportSharedVacationExcel(expenses, settlements, participants, `Gemeinsamer_Urlaub_${currentVacation.name || 'Export'}.xlsx`);
   };
 
-  const handleExportImage = () => {
-    exportAsImage('shared-vacation-export', `Gemeinsamer_Urlaub_${currentVacation.name || 'Export'}.png`);
+  const handleExportImage = async () => {
+    // Force settlements visible for export, then restore
+    const wasShown = showSettlements;
+    if (!wasShown) setShowSettlements(true);
+    await new Promise(r => setTimeout(r, 120));
+    await exportAsImage('shared-export-canvas', `Gemeinsamer_Urlaub_${currentVacation.name || 'Export'}.png`);
+    if (!wasShown) setShowSettlements(false);
   };
 
   if (!currentVacation || !currentVacation.settings?.participants?.length) {
@@ -878,6 +900,136 @@ export default function SharedVacation() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Hidden clean export canvas – always rendered off-screen */}
+      <div
+        id="shared-export-canvas"
+        style={{
+          position: 'fixed',
+          left: '-9999px',
+          top: 0,
+          width: '560px',
+          background: '#ffffff',
+          fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+          padding: '32px',
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* Title */}
+        <div style={{ marginBottom: '24px', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Gemeinsamer Urlaub
+          </div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#1e293b' }}>
+            {currentVacation?.name || 'Abrechnung'}
+          </div>
+          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+            {new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' })}
+          </div>
+        </div>
+
+        {/* Summary Table */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: '#10b981' }} />
+            Übersichtstabelle
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                <th style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Teilnehmer</th>
+                <th style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bezahlt</th>
+                <th style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Anteil</th>
+                <th style={{ textAlign: 'right', padding: '10px 12px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bilanz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {participants.map((p, i) => {
+                const stats = personStats[p] || { paid: 0, owes: 0 };
+                const balance = stats.paid - stats.owes;
+                const balanceColor = balance > 0.01 ? '#16a34a' : balance < -0.01 ? '#dc2626' : '#64748b';
+                return (
+                  <tr key={p} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#334155' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '32px', height: '32px', borderRadius: '50%',
+                          background: AVATAR_COLORS[i % AVATAR_COLORS.length],
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', fontWeight: 700, fontSize: '12px',
+                          lineHeight: '32px', textAlign: 'center', flexShrink: 0,
+                        }}>
+                          {getInitials(p)}
+                        </div>
+                        <span style={{ fontWeight: 600 }}>{p}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontWeight: 500, color: '#334155' }}>
+                      {formatCurrency(stats.paid, displayCurrency)}
+                    </td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontWeight: 500, color: '#334155' }}>
+                      {formatCurrency(stats.owes, displayCurrency)}
+                    </td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontWeight: 700, color: balanceColor }}>
+                      {balance > 0.01 ? '+' : ''}{formatCurrency(balance, displayCurrency)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Settlements */}
+        <div>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: '#8b5cf6' }} />
+            Ausgleichszahlungen
+          </div>
+          {settlements.length === 0 ? (
+            <div style={{ padding: '14px 16px', background: '#f0fdf4', borderRadius: '10px', color: '#16a34a', fontSize: '13px', fontWeight: 500, border: '1px solid #bbf7d0' }}>
+              ✓ Alle Ausgaben sind ausgeglichen – keine Zahlungen notwendig.
+            </div>
+          ) : (
+            settlements.map((s, i) => (
+              <div key={`${s.from}-${s.to}`} style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                padding: '12px 16px', background: '#f8fafc',
+                borderRadius: '10px', marginBottom: '8px',
+                border: '1px solid #e2e8f0',
+              }}>
+                <div style={{
+                  width: '32px', height: '32px', borderRadius: '50%',
+                  background: AVATAR_COLORS[participants.indexOf(s.from) % AVATAR_COLORS.length] || '#6366f1',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 700, fontSize: '12px',
+                  lineHeight: '32px', textAlign: 'center', flexShrink: 0,
+                }}>
+                  {getInitials(s.from)}
+                </div>
+                <span style={{ fontWeight: 600, color: '#334155', fontSize: '14px' }}>{s.from}</span>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{ height: '2px', flex: 1, background: 'linear-gradient(90deg, #6366f1, #8b5cf6)', borderRadius: '1px' }} />
+                  <span style={{ fontSize: '11px', color: '#8b5cf6', fontWeight: 700 }}>→</span>
+                </div>
+                <div style={{
+                  width: '32px', height: '32px', borderRadius: '50%',
+                  background: AVATAR_COLORS[participants.indexOf(s.to) % AVATAR_COLORS.length] || '#8b5cf6',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 700, fontSize: '12px',
+                  lineHeight: '32px', textAlign: 'center', flexShrink: 0,
+                }}>
+                  {getInitials(s.to)}
+                </div>
+                <span style={{ fontWeight: 600, color: '#334155', fontSize: '14px' }}>{s.to}</span>
+                <span style={{ fontWeight: 800, color: '#6366f1', fontSize: '15px', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                  {formatCurrency(s.amount, displayCurrency)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

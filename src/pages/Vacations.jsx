@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createVacation, deleteVacation, updateVacation, joinVacation } from '../utils/db';
+import { createVacation, deleteVacation, updateVacation, joinVacation, leaveVacation } from '../utils/db';
 import { useVacation } from '../contexts/VacationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Trash2, Edit3, Plane, Check, X } from 'lucide-react';
@@ -338,6 +338,8 @@ export default function Vacations() {
 
   const [deletingId, setDeletingId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [leavingId, setLeavingId] = useState(null);
+  const [leaving, setLeaving] = useState(false);
 
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -389,6 +391,18 @@ export default function Vacations() {
       console.error('Fehler beim Löschen:', err);
     }
     setDeleting(false);
+  };
+
+  const handleLeave = async (vacationId) => {
+    setLeaving(true);
+    try {
+      await leaveVacation(vacationId, currentUser.id);
+      await loadVacations();
+      setLeavingId(null);
+    } catch (err) {
+      console.error('Fehler beim Entfernen:', err);
+    }
+    setLeaving(false);
   };
 
   const handleRenameStart = (vac) => {
@@ -484,6 +498,8 @@ export default function Vacations() {
                 const isSelected = currentVacation?.id === vac.id;
                 const isEditing = editingId === vac.id;
                 const isConfirmingDelete = deletingId === vac.id;
+                const isConfirmingLeave = leavingId === vac.id;
+                const isCreator = vac.userId === currentUser?.id;
 
                 return (
                   <motion.div
@@ -558,21 +574,23 @@ export default function Vacations() {
                           style={styles.cardActions}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <motion.button
-                            style={styles.actionBtn}
-                            whileHover={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleRenameStart(vac)}
-                            title="Umbenennen"
-                          >
-                            <Edit3 size={15} />
-                          </motion.button>
+                          {isCreator && (
+                            <motion.button
+                              style={styles.actionBtn}
+                              whileHover={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => handleRenameStart(vac)}
+                              title="Umbenennen"
+                            >
+                              <Edit3 size={15} />
+                            </motion.button>
+                          )}
                           <motion.button
                             style={styles.actionBtn}
                             whileHover={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}
                             whileTap={{ scale: 0.9 }}
-                            onClick={() => setDeletingId(vac.id)}
-                            title="Löschen"
+                            onClick={() => isCreator ? setDeletingId(vac.id) : setLeavingId(vac.id)}
+                            title={isCreator ? 'Löschen' : 'Aus Liste entfernen'}
                           >
                             <Trash2 size={15} />
                           </motion.button>
@@ -580,7 +598,7 @@ export default function Vacations() {
                       )}
                     </div>
 
-                    {/* Delete Confirmation Overlay */}
+                    {/* Delete Confirmation Overlay (only creator) */}
                     <AnimatePresence>
                       {isConfirmingDelete && (
                         <motion.div
@@ -592,7 +610,7 @@ export default function Vacations() {
                           onClick={(e) => e.stopPropagation()}
                         >
                           <p style={styles.confirmText}>
-                            Urlaub "{vac.name}" wirklich löschen?
+                            Urlaub "{vac.name}" endgültig löschen?
                           </p>
                           <div style={styles.confirmActions}>
                             <motion.button
@@ -615,6 +633,47 @@ export default function Vacations() {
                               disabled={deleting}
                             >
                               {deleting ? 'Wird gelöscht...' : 'Löschen'}
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Leave Confirmation Overlay (joined members) */}
+                    <AnimatePresence>
+                      {isConfirmingLeave && (
+                        <motion.div
+                          style={styles.confirmOverlay}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p style={styles.confirmText}>
+                            "{vac.name}" aus deiner Liste entfernen?
+                          </p>
+                          <div style={styles.confirmActions}>
+                            <motion.button
+                              style={styles.btnSecondary}
+                              whileHover={{ background: 'rgba(255,255,255,0.1)' }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setLeavingId(null)}
+                              disabled={leaving}
+                            >
+                              Abbrechen
+                            </motion.button>
+                            <motion.button
+                              style={{
+                                ...styles.btnDanger,
+                                opacity: leaving ? 0.6 : 1,
+                              }}
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleLeave(vac.id)}
+                              disabled={leaving}
+                            >
+                              {leaving ? 'Wird entfernt...' : 'Entfernen'}
                             </motion.button>
                           </div>
                         </motion.div>

@@ -4,8 +4,8 @@ import { updateVacation } from '../utils/db';
 import { updateUser } from '../utils/db';
 import { useVacation } from '../contexts/VacationContext';
 import { useAuth } from '../contexts/AuthContext';
-import { exportAsImage, exportAsPDF, exportAsExcel } from '../utils/exportUtils';
-import { Settings as SettingsIcon, DollarSign, Eye, EyeOff, Users, Download, Key, LogOut, ChevronDown, ChevronUp, Plus, Trash2, Save, X, Image, FileText, FileSpreadsheet, UserCog, User, Info, Edit3 } from 'lucide-react';
+import { exportAsImage, exportAsExcel } from '../utils/exportUtils';
+import { Settings as SettingsIcon, DollarSign, Eye, EyeOff, Users, Download, Key, LogOut, ChevronDown, ChevronUp, Plus, Trash2, Save, X, Image, FileSpreadsheet, UserCog, User, Info, Edit3 } from 'lucide-react';
 
 const styles = {
   container: {
@@ -314,11 +314,25 @@ function Toggle({ on, onToggle }) {
 }
 
 function Section({ icon, title, children, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const { currentUser } = useAuth();
+  const storageKey = currentUser ? `settings_section_${currentUser.id}_${title}` : null;
+  const [open, setOpen] = useState(() => {
+    if (storageKey) {
+      const stored = localStorage.getItem(storageKey);
+      if (stored !== null) return stored === 'true';
+    }
+    return defaultOpen;
+  });
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (storageKey) localStorage.setItem(storageKey, String(next));
+  };
 
   return (
     <div style={styles.section}>
-      <button style={styles.sectionHeader} onClick={() => setOpen(!open)}>
+      <button style={styles.sectionHeader} onClick={toggle}>
         <div style={styles.sectionHeaderLeft}>
           {icon}
           <h3 style={styles.sectionTitle}>{title}</h3>
@@ -543,14 +557,6 @@ export default function Settings({ onAdminPanel, onLogout }) {
       return;
     }
     exportAsImage('export-content', `${currentVacation?.name || 'urlaub'}.png`);
-  };
-  const handleExportPDF = () => {
-    const el = document.getElementById('export-content');
-    if (!el) {
-      alert('Bitte gehe zur Übersicht und nutze den Export dort');
-      return;
-    }
-    exportAsPDF('export-content', `${currentVacation?.name || 'urlaub'}.pdf`);
   };
   const handleExportExcel = () => {
     const data = (expenses || []).map(e => ({
@@ -860,9 +866,6 @@ export default function Settings({ onAdminPanel, onLogout }) {
           <div style={styles.exportRow}>
             <button style={styles.exportBtn('#3b82f6')} onClick={handleExportImage}>
               <Image size={17} /> Bild (PNG)
-            </button>
-            <button style={styles.exportBtn('#ef4444')} onClick={handleExportPDF}>
-              <FileText size={17} /> PDF
             </button>
             <button style={styles.exportBtn('#10b981')} onClick={handleExportExcel}>
               <FileSpreadsheet size={17} /> Excel

@@ -162,6 +162,15 @@ export function generateInviteCode() {
   return code;
 }
 
+export async function leaveVacation(vacationId, userId) {
+  const vacRef = doc(db, 'vacations', vacationId);
+  const snap = await getDoc(vacRef);
+  if (!snap.exists()) return;
+  const vac = snap.data();
+  const members = (vac.members || [vac.userId]).filter(m => m !== userId);
+  await updateDoc(vacRef, { members });
+}
+
 export async function joinVacation(code, userId) {
   const snap = await getDocs(query(collection(db, 'vacations'), where('inviteCode', '==', code.toUpperCase())));
   if (snap.empty) return { success: false, error: 'Kein Urlaub mit diesem Code gefunden' };
