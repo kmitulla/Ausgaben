@@ -726,6 +726,7 @@ export default function Settings({ onAdminPanel, onLogout }) {
               <input
                 style={styles.rateInput}
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 min="0"
                 value={rate}
@@ -756,6 +757,7 @@ export default function Settings({ onAdminPanel, onLogout }) {
             <input
               style={{ ...styles.rateInput, width: 'auto', flex: 1 }}
               type="number"
+              inputMode="decimal"
               step="0.01"
               min="0"
               placeholder="Kurs"

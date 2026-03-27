@@ -439,7 +439,7 @@ export default function SharedVacation() {
   };
 
   const handleExportExcel = () => {
-    exportSharedVacationExcel(expenses, settlements, participants, `Gemeinsamer_Urlaub_${currentVacation.name || 'Export'}.xlsx`);
+    exportSharedVacationExcel(expenses, settlements, participants, `Gemeinsamer_Urlaub_${currentVacation.name || 'Export'}.xlsx`, personStats, displayCurrency);
   };
 
   const handleExportImage = async () => {
@@ -926,6 +926,14 @@ export default function SharedVacation() {
           <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
             {new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' })}
           </div>
+        </div>
+
+        {/* Total amount */}
+        <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', borderRadius: '10px', padding: '14px 18px', border: '1px solid #bbf7d0' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: '#15803d' }}>Gesamtbetrag des Urlaubs</span>
+          <span style={{ fontSize: '20px', fontWeight: 800, color: '#15803d' }}>
+            {formatCurrency(participants.reduce((sum, p) => sum + (personStats[p]?.paid || 0), 0), displayCurrency)}
+          </span>
         </div>
 
         {/* Summary Table */}

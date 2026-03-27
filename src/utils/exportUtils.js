@@ -55,7 +55,7 @@ export function exportAsExcel(data, filename = 'export.xlsx', sheetName = 'Daten
   XLSX.writeFile(wb, filename);
 }
 
-export function exportSharedVacationExcel(expenses, settlements, participants, filename) {
+export function exportSharedVacationExcel(expenses, settlements, participants, filename, personStats = {}, displayCurrency = 'EUR') {
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: All expenses
@@ -75,10 +75,24 @@ export function exportSharedVacationExcel(expenses, settlements, participants, f
   const settData = settlements.map(s => ({
     'Von': s.from,
     'An': s.to,
-    'Betrag': s.amount
+    [`Betrag (${displayCurrency})`]: s.amount
   }));
   const ws2 = XLSX.utils.json_to_sheet(settData);
   XLSX.utils.book_append_sheet(wb, ws2, 'Ausgleichszahlungen');
+
+  // Sheet 3: Balance table
+  const bilanzData = participants.map(p => {
+    const stats = personStats[p] || { paid: 0, owes: 0 };
+    const balance = Math.round((stats.paid - stats.owes) * 100) / 100;
+    return {
+      'Teilnehmer': p,
+      [`Bezahlt (${displayCurrency})`]: Math.round(stats.paid * 100) / 100,
+      [`Anteil (${displayCurrency})`]: Math.round(stats.owes * 100) / 100,
+      [`Bilanz (${displayCurrency})`]: balance
+    };
+  });
+  const ws3 = XLSX.utils.json_to_sheet(bilanzData);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Bilanz');
 
   XLSX.writeFile(wb, filename);
 }
