@@ -43,6 +43,13 @@ export default function Expenses() {
   const exchangeRates = currentVacation?.settings?.exchangeRates || { EUR: 1 };
   const defaultCurrency = currentVacation?.settings?.defaultExchangeRate || 'EUR';
 
+  // Permission: creator=3, else from memberPermissions (default 2)
+  const userPermission = !currentVacation || !currentUser ? 0
+    : currentVacation.userId === currentUser.id ? 3
+    : (currentVacation.memberPermissions?.[currentUser.id] ?? 2);
+  const canCreate = userPermission >= 2;
+  const canEdit = userPermission >= 3;
+
   const getFields = useCallback(() => {
     const fields = [{ key: 'name', label: 'Ausgabe', type: 'text' }];
     if (vf.amount !== false) fields.push({ key: 'amount', label: 'Betrag', type: 'number' });
@@ -186,7 +193,7 @@ export default function Expenses() {
   return (
     <div style={s.page} ref={formTopRef}>
       {/* Quick Add Button */}
-      {!showAddForm && (
+      {!showAddForm && canCreate && (
         <motion.button
           style={s.fab}
           whileHover={{ scale: 1.1 }}
@@ -199,7 +206,7 @@ export default function Expenses() {
 
       {/* Quick Add Form */}
       <AnimatePresence>
-        {showAddForm && (
+        {showAddForm && canCreate && (
           <motion.div
             initial={{ opacity: 0, y: -20, height: 0 }}
             animate={{ opacity: 1, y: 0, height: 'auto' }}
@@ -690,8 +697,9 @@ export default function Expenses() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.03 }}
-              style={s.expenseCard}
+              style={{ ...s.expenseCard, cursor: canEdit ? 'pointer' : 'default' }}
               onClick={() => {
+                if (!canEdit) return;
                 setEditExpense(exp);
                 const data = { ...exp };
                 if (!data.paidForShares && (data.paidFor || []).length > 0) {
@@ -719,15 +727,17 @@ export default function Expenses() {
               </div>
               <div style={{ textAlign: 'right', marginLeft: 12, flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 16, color: '#0c4a6e' }}>{formatAmount(exp)}</div>
-                <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
-                  <motion.button
-                    whileTap={{ scale: 0.8 }}
-                    onClick={e => { e.stopPropagation(); setDeleteConfirm(exp.id); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#ef4444' }}
-                  >
-                    <Trash2 size={16} />
-                  </motion.button>
-                </div>
+                {canEdit && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
+                    <motion.button
+                      whileTap={{ scale: 0.8 }}
+                      onClick={e => { e.stopPropagation(); setDeleteConfirm(exp.id); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#ef4444' }}
+                    >
+                      <Trash2 size={16} />
+                    </motion.button>
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}

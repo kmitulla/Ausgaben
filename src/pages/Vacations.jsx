@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createVacation, deleteVacation, updateVacation, joinVacation, leaveVacation } from '../utils/db';
+import { createVacation, deleteVacation, updateVacation, joinVacation, leaveVacation, getUsers } from '../utils/db';
 import { useVacation } from '../contexts/VacationContext';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Trash2, Edit3, Plane, Check, X } from 'lucide-react';
+import { Plus, Trash2, Edit3, Plane, Check, X, Share2, Users, Copy, Shield } from 'lucide-react';
 
 const styles = {
   page: {
@@ -325,6 +325,12 @@ function formatDate(timestamp) {
   });
 }
 
+const PERMISSION_LABELS = {
+  1: 'Nur Sehen',
+  2: 'Erstellen',
+  3: 'Erstellen, Bearbeiten & Löschen',
+};
+
 export default function Vacations() {
   const { vacations, currentVacation, selectVacation, loadVacations } = useVacation();
   const { currentUser } = useAuth();
@@ -344,6 +350,36 @@ export default function Vacations() {
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState('');
+
+  // Invite code display
+  const [shownCodeId, setShownCodeId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+
+  // Members / permissions modal
+  const [membersVac, setMembersVac] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
+
+  useEffect(() => {
+    if (membersVac) {
+      getUsers().then(setAllUsers).catch(() => {});
+    }
+  }, [membersVac]);
+
+  const handleCopyCode = (e, vac) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(vac.inviteCode).catch(() => {});
+    setCopiedId(vac.id);
+    setShownCodeId(vac.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleSetPermission = async (vac, userId, level) => {
+    const existing = vac.memberPermissions || {};
+    await updateVacation(vac.id, { memberPermissions: { ...existing, [userId]: level } });
+    await loadVacations();
+    // update local membersVac
+    setMembersVac(v => v ? { ...v, memberPermissions: { ...(v.memberPermissions || {}), [userId]: level } } : v);
+  };
 
   const handleCreate = async () => {
     const trimmed = newName.trim();
@@ -555,7 +591,26 @@ export default function Vacations() {
                             <p style={styles.cardName}>{vac.name}</p>
                             <p style={styles.cardDate}>
                               Erstellt am {formatDate(vac.createdAt)}
+                              {!isCreator && <span style={{ marginLeft: 6, color: '#64748b' }}>· Eingeladen</span>}
                             </p>
+                            {isCreator && shownCodeId === vac.id && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}
+                                onClick={e => e.stopPropagation()}
+                              >
+                                <span style={{ fontFamily: 'monospace', fontSize: '0.9rem', fontWeight: 700, color: '#10b981', letterSpacing: '0.12em', background: 'rgba(16,185,129,0.1)', borderRadius: 6, padding: '2px 8px' }}>
+                                  {vac.inviteCode}
+                                </span>
+                                <button onClick={(e) => handleCopyCode(e, vac)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2 }}>
+                                  <Copy size={13} />
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); setShownCodeId(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2 }}>
+                                  <X size={13} />
+                                </button>
+                              </motion.div>
+                            )}
                             {isSelected && (
                               <motion.span
                                 style={styles.selectedBadge}
@@ -575,15 +630,35 @@ export default function Vacations() {
                           onClick={(e) => e.stopPropagation()}
                         >
                           {isCreator && (
-                            <motion.button
-                              style={styles.actionBtn}
-                              whileHover={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleRenameStart(vac)}
-                              title="Umbenennen"
-                            >
-                              <Edit3 size={15} />
-                            </motion.button>
+                            <>
+                              <motion.button
+                                style={styles.actionBtn}
+                                whileHover={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={(e) => handleCopyCode(e, vac)}
+                                title="Einladungscode teilen"
+                              >
+                                {copiedId === vac.id ? <Check size={15} color="#10b981" /> : <Share2 size={15} />}
+                              </motion.button>
+                              <motion.button
+                                style={styles.actionBtn}
+                                whileHover={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={(e) => { e.stopPropagation(); setMembersVac(vac); }}
+                                title="Mitglieder & Rechte"
+                              >
+                                <Shield size={15} />
+                              </motion.button>
+                              <motion.button
+                                style={styles.actionBtn}
+                                whileHover={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleRenameStart(vac)}
+                                title="Umbenennen"
+                              >
+                                <Edit3 size={15} />
+                              </motion.button>
+                            </>
                           )}
                           <motion.button
                             style={styles.actionBtn}
@@ -702,6 +777,74 @@ export default function Vacations() {
           <Plus size={26} />
         </motion.button>
       )}
+
+      {/* Members & Permissions Modal */}
+      <AnimatePresence>
+        {membersVac && (
+          <motion.div style={styles.overlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setMembersVac(null)}>
+            <motion.div style={{ ...styles.modal, maxWidth: 460, maxHeight: '85vh', overflowY: 'auto' }}
+              initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+                <h2 style={{ ...styles.modalTitle, margin: 0 }}>Mitglieder & Rechte</h2>
+                <button onClick={() => setMembersVac(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 4 }}><X size={20} /></button>
+              </div>
+
+              {/* Invite code */}
+              <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 12, padding: '0.75rem 1rem', marginBottom: '1.25rem' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Einladungscode</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: '1.3rem', fontWeight: 800, color: '#10b981', letterSpacing: '0.18em' }}>{membersVac.inviteCode}</span>
+                  <button onClick={() => { navigator.clipboard?.writeText(membersVac.inviteCode).catch(() => {}); }} style={{ background: 'rgba(16,185,129,0.15)', border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#10b981', fontSize: 12, fontWeight: 600 }}>
+                    Kopieren
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Teile diesen Code mit Personen, die du einladen möchtest.</div>
+              </div>
+
+              {/* Members list */}
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                Mitglieder ({(membersVac.members || [membersVac.userId]).length})
+              </div>
+              {(membersVac.members || [membersVac.userId]).map(uid => {
+                const user = allUsers.find(u => u.id === uid);
+                const isOwner = uid === membersVac.userId;
+                const currentPerm = isOwner ? 3 : (membersVac.memberPermissions?.[uid] ?? 2);
+                return (
+                  <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0.65rem 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: isOwner ? 'linear-gradient(135deg, #3b82f6, #6366f1)' : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, color: '#f1f5f9', flexShrink: 0 }}>
+                      {(user?.username || uid).charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: '#f1f5f9', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {user?.username || uid}
+                        {isOwner && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#3b82f6', background: 'rgba(59,130,246,0.15)', borderRadius: 4, padding: '1px 5px' }}>Ersteller</span>}
+                      </div>
+                    </div>
+                    {isOwner ? (
+                      <span style={{ fontSize: 12, color: '#64748b' }}>Voller Zugriff</span>
+                    ) : (
+                      <select
+                        value={currentPerm}
+                        onChange={e => handleSetPermission(membersVac, uid, parseInt(e.target.value))}
+                        style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)', color: '#f1f5f9', fontSize: 12, fontFamily: 'inherit', outline: 'none', cursor: 'pointer' }}
+                      >
+                        <option value={1}>Nur Sehen</option>
+                        <option value={2}>Erstellen</option>
+                        <option value={3}>Erstellen, Bearbeiten & Löschen</option>
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
+              {allUsers.length === 0 && (
+                <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center', padding: '1rem 0' }}>Lädt Mitglieder...</div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create Modal */}
       <AnimatePresence>
