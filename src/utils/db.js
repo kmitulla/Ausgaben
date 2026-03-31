@@ -194,11 +194,21 @@ export function calculateDebts(expenses, participants, payments = []) {
     const amount = parseFloat(exp.amount) || 0;
     const rate = parseFloat(exp.exchangeRate) || 1;
     const converted = amount / rate;
-    const share = converted / exp.paidFor.length;
 
     balances[exp.paidBy] = (balances[exp.paidBy] || 0) + converted;
     exp.paidFor.forEach(person => {
-      balances[person] = (balances[person] || 0) - share;
+      let share;
+      if (exp.paidForAmounts && exp.paidForAmounts[person] !== undefined) {
+        share = (parseFloat(exp.paidForAmounts[person]) || 0) / rate;
+      } else {
+        share = converted / exp.paidFor.length;
+      }
+      if (exp.directlyPaid?.[person]) {
+        // Person already settled directly with payer → reduce payer's outstanding credit
+        balances[exp.paidBy] = (balances[exp.paidBy] || 0) - share;
+      } else {
+        balances[person] = (balances[person] || 0) - share;
+      }
     });
   });
 

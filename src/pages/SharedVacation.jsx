@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { updateVacation } from '../utils/db';
 import { calculateDebts } from '../utils/db';
 import { exportSharedVacationExcel, exportSharedVacationPDF, exportAsImage } from '../utils/exportUtils';
-import { Users, UserPlus, UserMinus, ArrowRight, Download, FileText, FileSpreadsheet, Image, DollarSign, ChevronDown, Check, X, CreditCard, Trash2 } from 'lucide-react';
+import { Users, UserPlus, UserMinus, ArrowRight, Download, FileText, FileSpreadsheet, Image, DollarSign, ChevronDown, Check, X, CreditCard, Trash2, Edit3 } from 'lucide-react';
 
 const styles = {
   container: {
@@ -364,8 +364,9 @@ export default function SharedVacation() {
     export: getSectionStored('export', false),
   });
 
-  const [paymentForm, setPaymentForm] = useState({ from: '', to: '', amount: '' });
+  const [paymentForm, setPaymentForm] = useState({ from: '', to: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' });
   const [paymentSaving, setPaymentSaving] = useState(false);
+  const [editPayment, setEditPayment] = useState(null); // payment being edited
 
   const participants = currentVacation?.settings?.participants || [];
   const displayCurrency = currentVacation?.settings?.currency || 'EUR';
@@ -386,16 +387,25 @@ export default function SharedVacation() {
       const amount = parseFloat(exp.amount) || 0;
       const rate = parseFloat(exp.exchangeRate) || 1;
       const converted = amount / rate;
-      const share = converted / exp.paidFor.length;
 
       if (stats[exp.paidBy]) {
         stats[exp.paidBy].paid += converted;
         stats[exp.paidBy].paidExpenses.push(exp);
       }
       exp.paidFor.forEach(person => {
-        if (stats[person]) {
-          stats[person].owes += share;
-          stats[person].owedExpenses.push(exp);
+        let share;
+        if (exp.paidForAmounts && exp.paidForAmounts[person] !== undefined) {
+          share = (parseFloat(exp.paidForAmounts[person]) || 0) / rate;
+        } else {
+          share = converted / exp.paidFor.length;
+        }
+        if (exp.directlyPaid?.[person]) {
+          if (stats[exp.paidBy]) stats[exp.paidBy].paid -= share;
+        } else {
+          if (stats[person]) {
+            stats[person].owes += share;
+            stats[person].owedExpenses.push(exp);
+          }
         }
       });
     });
@@ -446,26 +456,37 @@ export default function SharedVacation() {
   };
 
   const handleAddPayment = async () => {
-    const { from, to, amount } = paymentForm;
+    const { from, to, amount, date, note } = paymentForm;
     if (!from || !to || !amount || from === to || parseFloat(amount) <= 0) return;
     setPaymentSaving(true);
     const newPayment = {
       id: `pay_${Date.now()}`,
-      from,
-      to,
+      from, to,
       amount: parseFloat(parseFloat(amount).toFixed(2)),
-      date: new Date().toISOString().slice(0, 10),
+      date: date || new Date().toISOString().slice(0, 10),
+      note: note || '',
     };
-    const updated = [...payments, newPayment];
-    await updateVacation(currentVacation.id, { payments: updated });
-    setPaymentForm({ from: '', to: '', amount: '' });
+    await updateVacation(currentVacation.id, { payments: [...payments, newPayment] });
+    setPaymentForm({ from: '', to: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' });
     setPaymentSaving(false);
     await refreshVacation();
   };
 
-  const handleDeletePayment = async (payId) => {
-    const updated = payments.filter(p => p.id !== payId);
+  const handleUpdatePayment = async () => {
+    if (!editPayment) return;
+    const { from, to, amount, date, note } = editPayment;
+    if (!from || !to || !amount || from === to || parseFloat(amount) <= 0) return;
+    const updated = payments.map(p => p.id === editPayment.id
+      ? { ...p, from, to, amount: parseFloat(parseFloat(amount).toFixed(2)), date: date || p.date, note: note || '' }
+      : p
+    );
     await updateVacation(currentVacation.id, { payments: updated });
+    setEditPayment(null);
+    await refreshVacation();
+  };
+
+  const handleDeletePayment = async (payId) => {
+    await updateVacation(currentVacation.id, { payments: payments.filter(p => p.id !== payId) });
     await refreshVacation();
   };
 
@@ -788,38 +809,32 @@ export default function SharedVacation() {
             >
               <div style={styles.cardBody}>
                 {/* Add payment form */}
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                  <select
-                    value={paymentForm.from}
-                    onChange={e => setPaymentForm(f => ({ ...f, from: e.target.value }))}
-                    style={{ flex: 1, minWidth: '100px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit', background: '#fff', color: '#334155' }}
-                  >
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  <select value={paymentForm.from} onChange={e => setPaymentForm(f => ({ ...f, from: e.target.value }))}
+                    style={{ flex: 1, minWidth: '90px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit', background: '#fff', color: '#334155' }}>
                     <option value="">Von</option>
                     {participants.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
-                  <select
-                    value={paymentForm.to}
-                    onChange={e => setPaymentForm(f => ({ ...f, to: e.target.value }))}
-                    style={{ flex: 1, minWidth: '100px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit', background: '#fff', color: '#334155' }}
-                  >
+                  <select value={paymentForm.to} onChange={e => setPaymentForm(f => ({ ...f, to: e.target.value }))}
+                    style={{ flex: 1, minWidth: '90px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit', background: '#fff', color: '#334155' }}>
                     <option value="">An</option>
                     {participants.filter(p => p !== paymentForm.from).map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0"
-                    placeholder={`Betrag (${displayCurrency})`}
-                    value={paymentForm.amount}
+                  <input type="number" inputMode="decimal" step="0.01" min="0"
+                    placeholder={`Betrag (${displayCurrency})`} value={paymentForm.amount}
                     onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))}
-                    style={{ width: '120px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit' }}
-                  />
-                  <button
-                    onClick={handleAddPayment}
+                    style={{ width: '110px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit' }} />
+                  <input type="date" value={paymentForm.date}
+                    onChange={e => setPaymentForm(f => ({ ...f, date: e.target.value }))}
+                    style={{ width: '130px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit' }} />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <input type="text" placeholder="Notiz (optional)" value={paymentForm.note}
+                    onChange={e => setPaymentForm(f => ({ ...f, note: e.target.value }))}
+                    style={{ flex: 1, padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit' }} />
+                  <button onClick={handleAddPayment}
                     disabled={paymentSaving || !paymentForm.from || !paymentForm.to || !paymentForm.amount || paymentForm.from === paymentForm.to}
-                    style={{ padding: '0.5rem 1rem', borderRadius: '8px', background: '#10b981', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', opacity: (paymentSaving || !paymentForm.from || !paymentForm.to || !paymentForm.amount) ? 0.5 : 1 }}
-                  >
+                    style={{ padding: '0.5rem 1rem', borderRadius: '8px', background: '#10b981', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', opacity: (paymentSaving || !paymentForm.from || !paymentForm.to || !paymentForm.amount) ? 0.5 : 1 }}>
                     {paymentSaving ? '...' : '+ Zahlung'}
                   </button>
                 </div>
@@ -833,22 +848,64 @@ export default function SharedVacation() {
                   payments.map((pay, i) => {
                     const fromIdx = participants.indexOf(pay.from);
                     const toIdx = participants.indexOf(pay.to);
+                    const isEditing = editPayment?.id === pay.id;
                     return (
-                      <div key={pay.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', background: i % 2 === 0 ? '#f8fafc' : '#fff', borderRadius: '8px', marginBottom: '0.35rem', border: '1px solid #f1f5f9' }}>
-                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: AVATAR_COLORS[fromIdx >= 0 ? fromIdx % AVATAR_COLORS.length : 0], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '11px', lineHeight: '28px', textAlign: 'center', flexShrink: 0 }}>
-                          {getInitials(pay.from)}
-                        </div>
-                        <span style={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>{pay.from}</span>
-                        <ArrowRight size={14} color="#10b981" />
-                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: AVATAR_COLORS[toIdx >= 0 ? toIdx % AVATAR_COLORS.length : 1], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '11px', lineHeight: '28px', textAlign: 'center', flexShrink: 0 }}>
-                          {getInitials(pay.to)}
-                        </div>
-                        <span style={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>{pay.to}</span>
-                        <span style={{ marginLeft: 'auto', fontWeight: 800, color: '#10b981', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{formatCurrency(pay.amount, displayCurrency)}</span>
-                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>{pay.date}</span>
-                        <button onClick={() => handleDeletePayment(pay.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', display: 'flex', alignItems: 'center' }}>
-                          <Trash2 size={15} />
-                        </button>
+                      <div key={pay.id} style={{ marginBottom: '0.5rem' }}>
+                        {isEditing ? (
+                          <div style={{ background: '#f0fdf4', borderRadius: '10px', padding: '0.75rem', border: '1px solid #bbf7d0' }}>
+                            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
+                              <select value={editPayment.from} onChange={e => setEditPayment(p => ({ ...p, from: e.target.value }))}
+                                style={{ flex: 1, minWidth: '80px', padding: '0.4rem', borderRadius: '7px', border: '1px solid #86efac', fontSize: '0.8rem', fontFamily: 'inherit' }}>
+                                {participants.map(p => <option key={p} value={p}>{p}</option>)}
+                              </select>
+                              <select value={editPayment.to} onChange={e => setEditPayment(p => ({ ...p, to: e.target.value }))}
+                                style={{ flex: 1, minWidth: '80px', padding: '0.4rem', borderRadius: '7px', border: '1px solid #86efac', fontSize: '0.8rem', fontFamily: 'inherit' }}>
+                                {participants.filter(p => p !== editPayment.from).map(p => <option key={p} value={p}>{p}</option>)}
+                              </select>
+                              <input type="number" inputMode="decimal" step="0.01" value={editPayment.amount}
+                                onChange={e => setEditPayment(p => ({ ...p, amount: e.target.value }))}
+                                style={{ width: '90px', padding: '0.4rem', borderRadius: '7px', border: '1px solid #86efac', fontSize: '0.8rem', fontFamily: 'inherit' }} />
+                              <input type="date" value={editPayment.date || ''}
+                                onChange={e => setEditPayment(p => ({ ...p, date: e.target.value }))}
+                                style={{ width: '130px', padding: '0.4rem', borderRadius: '7px', border: '1px solid #86efac', fontSize: '0.8rem', fontFamily: 'inherit' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                              <input type="text" placeholder="Notiz" value={editPayment.note || ''}
+                                onChange={e => setEditPayment(p => ({ ...p, note: e.target.value }))}
+                                style={{ flex: 1, padding: '0.4rem', borderRadius: '7px', border: '1px solid #86efac', fontSize: '0.8rem', fontFamily: 'inherit' }} />
+                              <button onClick={handleUpdatePayment} style={{ padding: '0.4rem 0.75rem', borderRadius: '7px', background: '#10b981', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                <Check size={14} />
+                              </button>
+                              <button onClick={() => setEditPayment(null)} style={{ padding: '0.4rem 0.75rem', borderRadius: '7px', background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer' }}>
+                                <X size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.75rem', background: i % 2 === 0 ? '#f8fafc' : '#fff', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: AVATAR_COLORS[fromIdx >= 0 ? fromIdx % AVATAR_COLORS.length : 0], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '11px', lineHeight: '28px', textAlign: 'center', flexShrink: 0 }}>
+                              {getInitials(pay.from)}
+                            </div>
+                            <span style={{ fontWeight: 600, color: '#334155', fontSize: '0.85rem' }}>{pay.from}</span>
+                            <ArrowRight size={13} color="#10b981" />
+                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: AVATAR_COLORS[toIdx >= 0 ? toIdx % AVATAR_COLORS.length : 1], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '11px', lineHeight: '28px', textAlign: 'center', flexShrink: 0 }}>
+                              {getInitials(pay.to)}
+                            </div>
+                            <span style={{ fontWeight: 600, color: '#334155', fontSize: '0.85rem' }}>{pay.to}</span>
+                            <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                              <span style={{ fontWeight: 800, color: '#10b981', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{formatCurrency(pay.amount, displayCurrency)}</span>
+                              {(pay.date || pay.note) && (
+                                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{pay.date}{pay.note ? ` · ${pay.note}` : ''}</span>
+                              )}
+                            </div>
+                            <button onClick={() => setEditPayment({ ...pay })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: '2px', display: 'flex', alignItems: 'center' }}>
+                              <Edit3 size={14} />
+                            </button>
+                            <button onClick={() => handleDeletePayment(pay.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', display: 'flex', alignItems: 'center' }}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })

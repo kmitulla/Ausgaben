@@ -64,7 +64,7 @@ export default function Expenses() {
     setFormData({
       name: '', amount: '', currency: defaultCurrency, exchangeRate: exchangeRates[defaultCurrency] || 1,
       category: '', date: today, time: '', note: '', paidBy: participants[0] || '', paidFor: [...participants],
-      paidForShares: defaultShares,
+      paidForShares: defaultShares, paidForAmounts: {}, directlyPaid: {}, splitMode: 'equal',
     });
     setCategorySearch('');
     setShowNewCategoryInput(false);
@@ -390,75 +390,99 @@ export default function Expenses() {
                   </select>
                 ) : field.type === 'paidFor' ? (
                   <div ref={el => inputRefs.current[field.key] = el} tabIndex={0} onKeyDown={e => handleKeyDown(e, field.key)} style={{ display: 'flex', flexDirection: 'column', gap: 8, outline: 'none' }}>
+                    {/* Split mode toggle */}
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                      {['equal', 'amount'].map(mode => (
+                        <button key={mode} type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, splitMode: mode }))}
+                          style={{ padding: '4px 10px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            background: (formData.splitMode || 'equal') === mode ? '#0ea5e9' : '#f1f5f9',
+                            color: (formData.splitMode || 'equal') === mode ? '#fff' : '#64748b' }}>
+                          {mode === 'equal' ? 'Gleich' : 'Betrag'}
+                        </button>
+                      ))}
+                    </div>
+
                     {participants.map(p => {
                       const isChecked = (formData.paidFor || []).includes(p);
-                      const percentageSplits = currentVacation?.settings?.percentageSplits;
+                      const splitMode = formData.splitMode || 'equal';
+                      const isDirectlyPaid = formData.directlyPaid?.[p] || false;
                       return (
-                        <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <label style={{
-                            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-                            borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 500,
-                            background: isChecked ? '#e0f2fe' : '#f1f5f9',
-                            color: isChecked ? '#0284c7' : '#64748b',
-                            border: `2px solid ${isChecked ? '#0ea5e9' : 'transparent'}`,
-                            transition: 'all 0.2s', flex: 1,
-                          }}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={e => {
-                                const cur = formData.paidFor || [];
-                                const newPaidFor = e.target.checked ? [...cur, p] : cur.filter(x => x !== p);
-                                const newShares = { ...(formData.paidForShares || {}) };
-                                if (e.target.checked) {
-                                  const equalShare = parseFloat((100 / newPaidFor.length).toFixed(2));
-                                  newPaidFor.forEach(pp => { newShares[pp] = equalShare; });
-                                } else {
-                                  delete newShares[p];
-                                  if (newPaidFor.length > 0) {
-                                    const equalShare = parseFloat((100 / newPaidFor.length).toFixed(2));
-                                    newPaidFor.forEach(pp => { newShares[pp] = equalShare; });
-                                  }
-                                }
-                                setFormData(prev => ({
-                                  ...prev,
-                                  paidFor: newPaidFor,
-                                  paidForShares: newShares,
-                                }));
-                              }}
-                              style={{ display: 'none' }}
-                            />
-                            {isChecked && <Check size={14} />}
-                            {p}
-                          </label>
-                          {percentageSplits && isChecked && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                pattern="[0-9]*\.?[0-9]*"
-                                value={formData.paidForShares?.[p] ?? ''}
+                        <div key={p} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <label style={{
+                              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                              borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 500,
+                              background: isChecked ? '#e0f2fe' : '#f1f5f9',
+                              color: isChecked ? '#0284c7' : '#64748b',
+                              border: `2px solid ${isChecked ? '#0ea5e9' : 'transparent'}`,
+                              transition: 'all 0.2s', flex: 1,
+                            }}>
+                              <input type="checkbox" checked={isChecked}
                                 onChange={e => {
-                                  const val = e.target.value;
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    paidForShares: { ...(prev.paidForShares || {}), [p]: val === '' ? '' : parseFloat(val) || 0 },
-                                  }));
+                                  const cur = formData.paidFor || [];
+                                  const newPaidFor = e.target.checked ? [...cur, p] : cur.filter(x => x !== p);
+                                  const newShares = { ...(formData.paidForShares || {}) };
+                                  if (e.target.checked) {
+                                    const eq = parseFloat((100 / newPaidFor.length).toFixed(2));
+                                    newPaidFor.forEach(pp => { newShares[pp] = eq; });
+                                  } else {
+                                    delete newShares[p];
+                                    if (newPaidFor.length > 0) {
+                                      const eq = parseFloat((100 / newPaidFor.length).toFixed(2));
+                                      newPaidFor.forEach(pp => { newShares[pp] = eq; });
+                                    }
+                                  }
+                                  const newDirectly = { ...(formData.directlyPaid || {}) };
+                                  if (!e.target.checked) delete newDirectly[p];
+                                  setFormData(prev => ({ ...prev, paidFor: newPaidFor, paidForShares: newShares, directlyPaid: newDirectly }));
                                 }}
-                                style={{ ...s.input, width: 60, padding: '6px 8px', fontSize: 13, textAlign: 'right' }}
-                              />
-                              <span style={{ fontSize: 13, color: '#64748b' }}>%</span>
-                            </div>
+                                style={{ display: 'none' }} />
+                              {isChecked && <Check size={14} />}
+                              {p}
+                            </label>
+
+                            {/* Amount input when splitMode=amount */}
+                            {splitMode === 'amount' && isChecked && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                <input type="number" inputMode="decimal" step="0.01" min="0"
+                                  placeholder="0.00"
+                                  value={formData.paidForAmounts?.[p] ?? ''}
+                                  onChange={e => setFormData(prev => ({
+                                    ...prev,
+                                    paidForAmounts: { ...(prev.paidForAmounts || {}), [p]: e.target.value === '' ? '' : e.target.value },
+                                  }))}
+                                  style={{ ...s.input, width: 70, padding: '6px 8px', fontSize: 13, textAlign: 'right' }} />
+                                <span style={{ fontSize: 12, color: '#64748b', flexShrink: 0 }}>{currencySymbols[formData.currency] || formData.currency}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Direkt bezahlt checkbox */}
+                          {isChecked && p !== formData.paidBy && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 14, cursor: 'pointer', fontSize: 12, color: isDirectlyPaid ? '#16a34a' : '#94a3b8', fontWeight: isDirectlyPaid ? 600 : 400 }}>
+                              <input type="checkbox" checked={isDirectlyPaid}
+                                onChange={e => setFormData(prev => ({
+                                  ...prev,
+                                  directlyPaid: { ...(prev.directlyPaid || {}), [p]: e.target.checked },
+                                }))} />
+                              {p} hat direkt bezahlt
+                            </label>
                           )}
                         </div>
                       );
                     })}
-                    {currentVacation?.settings?.percentageSplits && (formData.paidFor || []).length > 0 && (() => {
-                      const total = (formData.paidFor || []).reduce((sum, p) => sum + (parseFloat(formData.paidForShares?.[p]) || 0), 0);
-                      const isValid = Math.abs(total - 100) < 0.1;
+
+                    {/* Amount split summary */}
+                    {(formData.splitMode || 'equal') === 'amount' && (formData.paidFor || []).length > 0 && (() => {
+                      const totalAmt = parseFloat(formData.amount) || 0;
+                      const allocated = (formData.paidFor || []).reduce((s, p) => s + (parseFloat(formData.paidForAmounts?.[p]) || 0), 0);
+                      const remaining = totalAmt - allocated;
+                      const isOk = Math.abs(remaining) < 0.02;
                       return (
-                        <div style={{ fontSize: 12, color: isValid ? '#16a34a' : '#ef4444', fontWeight: 600, paddingLeft: 4 }}>
-                          Summe: {total.toFixed(1)}% {!isValid && '(muss 100% ergeben)'}
+                        <div style={{ fontSize: 12, color: isOk ? '#16a34a' : '#f59e0b', fontWeight: 600, paddingLeft: 4 }}>
+                          Zugeteilt: {allocated.toFixed(2)} / {totalAmt.toFixed(2)} {currencySymbols[formData.currency] || formData.currency}
+                          {!isOk && ` (Rest: ${remaining.toFixed(2)})`}
                         </div>
                       );
                     })()}
