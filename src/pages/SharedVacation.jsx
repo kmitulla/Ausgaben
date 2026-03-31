@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { updateVacation } from '../utils/db';
 import { calculateDebts } from '../utils/db';
 import { exportSharedVacationExcel, exportSharedVacationPDF, exportAsImage } from '../utils/exportUtils';
-import { Users, UserPlus, UserMinus, ArrowRight, Download, FileText, FileSpreadsheet, Image, DollarSign, ChevronDown, Check, X } from 'lucide-react';
+import { Users, UserPlus, UserMinus, ArrowRight, Download, FileText, FileSpreadsheet, Image, DollarSign, ChevronDown, Check, X, CreditCard, Trash2 } from 'lucide-react';
 
 const styles = {
   container: {
@@ -359,17 +359,22 @@ export default function SharedVacation() {
   const [sectionsOpen, setSectionsOpen] = useState({
     participants: getSectionStored('participants', true),
     summary: getSectionStored('summary', true),
+    payments: getSectionStored('payments', true),
     breakdown: getSectionStored('breakdown', false),
     export: getSectionStored('export', false),
   });
 
+  const [paymentForm, setPaymentForm] = useState({ from: '', to: '', amount: '' });
+  const [paymentSaving, setPaymentSaving] = useState(false);
+
   const participants = currentVacation?.settings?.participants || [];
   const displayCurrency = currentVacation?.settings?.currency || 'EUR';
+  const payments = currentVacation?.payments || [];
 
   const { balances, settlements } = useMemo(() => {
     if (!participants.length) return { balances: {}, settlements: [] };
-    return calculateDebts(expenses, participants);
-  }, [expenses, participants]);
+    return calculateDebts(expenses, participants, payments);
+  }, [expenses, participants, payments]);
 
   const personStats = useMemo(() => {
     const stats = {};
@@ -394,8 +399,14 @@ export default function SharedVacation() {
         }
       });
     });
+    // Factor in person-to-person payments
+    payments.forEach(pay => {
+      const amt = parseFloat(pay.amount) || 0;
+      if (stats[pay.from]) stats[pay.from].paid -= amt;
+      if (stats[pay.to]) stats[pay.to].paid += amt;
+    });
     return stats;
-  }, [expenses, participants]);
+  }, [expenses, participants, payments]);
 
   const toggleSection = (key) => {
     setSectionsOpen(prev => {
@@ -431,6 +442,30 @@ export default function SharedVacation() {
       settings: { ...currentVacation.settings, participants: updated },
     });
     setRemoveConfirm(null);
+    await refreshVacation();
+  };
+
+  const handleAddPayment = async () => {
+    const { from, to, amount } = paymentForm;
+    if (!from || !to || !amount || from === to || parseFloat(amount) <= 0) return;
+    setPaymentSaving(true);
+    const newPayment = {
+      id: `pay_${Date.now()}`,
+      from,
+      to,
+      amount: parseFloat(parseFloat(amount).toFixed(2)),
+      date: new Date().toISOString().slice(0, 10),
+    };
+    const updated = [...payments, newPayment];
+    await updateVacation(currentVacation.id, { payments: updated });
+    setPaymentForm({ from: '', to: '', amount: '' });
+    setPaymentSaving(false);
+    await refreshVacation();
+  };
+
+  const handleDeletePayment = async (payId) => {
+    const updated = payments.filter(p => p.id !== payId);
+    await updateVacation(currentVacation.id, { payments: updated });
     await refreshVacation();
   };
 
@@ -724,6 +759,104 @@ export default function SharedVacation() {
           <DollarSign size={20} />
           {showSettlements ? 'Ausgleich ausblenden' : 'Abrechnen'}
         </motion.button>
+      </motion.div>
+
+      {/* Person-to-Person Payments */}
+      <motion.div
+        style={styles.card}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.12 }}
+      >
+        <button style={styles.cardHeader} onClick={() => toggleSection('payments')}>
+          <div style={styles.cardHeaderLeft}>
+            <CreditCard size={18} color="#10b981" />
+            <h3 style={styles.cardTitle}>Zahlungen ({payments.length})</h3>
+          </div>
+          <motion.div animate={{ rotate: sectionsOpen.payments ? 180 : 0 }} transition={{ duration: 0.2 }}>
+            <ChevronDown size={18} color="#94a3b8" />
+          </motion.div>
+        </button>
+        <AnimatePresence>
+          {sectionsOpen.payments && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div style={styles.cardBody}>
+                {/* Add payment form */}
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                  <select
+                    value={paymentForm.from}
+                    onChange={e => setPaymentForm(f => ({ ...f, from: e.target.value }))}
+                    style={{ flex: 1, minWidth: '100px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit', background: '#fff', color: '#334155' }}
+                  >
+                    <option value="">Von</option>
+                    {participants.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <select
+                    value={paymentForm.to}
+                    onChange={e => setPaymentForm(f => ({ ...f, to: e.target.value }))}
+                    style={{ flex: 1, minWidth: '100px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit', background: '#fff', color: '#334155' }}
+                  >
+                    <option value="">An</option>
+                    {participants.filter(p => p !== paymentForm.from).map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    placeholder={`Betrag (${displayCurrency})`}
+                    value={paymentForm.amount}
+                    onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))}
+                    style={{ width: '120px', padding: '0.5rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.875rem', fontFamily: 'inherit' }}
+                  />
+                  <button
+                    onClick={handleAddPayment}
+                    disabled={paymentSaving || !paymentForm.from || !paymentForm.to || !paymentForm.amount || paymentForm.from === paymentForm.to}
+                    style={{ padding: '0.5rem 1rem', borderRadius: '8px', background: '#10b981', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', opacity: (paymentSaving || !paymentForm.from || !paymentForm.to || !paymentForm.amount) ? 0.5 : 1 }}
+                  >
+                    {paymentSaving ? '...' : '+ Zahlung'}
+                  </button>
+                </div>
+
+                {/* Payment list */}
+                {payments.length === 0 ? (
+                  <div style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', padding: '0.75rem 0' }}>
+                    Noch keine Zahlungen erfasst
+                  </div>
+                ) : (
+                  payments.map((pay, i) => {
+                    const fromIdx = participants.indexOf(pay.from);
+                    const toIdx = participants.indexOf(pay.to);
+                    return (
+                      <div key={pay.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', background: i % 2 === 0 ? '#f8fafc' : '#fff', borderRadius: '8px', marginBottom: '0.35rem', border: '1px solid #f1f5f9' }}>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: AVATAR_COLORS[fromIdx >= 0 ? fromIdx % AVATAR_COLORS.length : 0], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '11px', lineHeight: '28px', textAlign: 'center', flexShrink: 0 }}>
+                          {getInitials(pay.from)}
+                        </div>
+                        <span style={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>{pay.from}</span>
+                        <ArrowRight size={14} color="#10b981" />
+                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: AVATAR_COLORS[toIdx >= 0 ? toIdx % AVATAR_COLORS.length : 1], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '11px', lineHeight: '28px', textAlign: 'center', flexShrink: 0 }}>
+                          {getInitials(pay.to)}
+                        </div>
+                        <span style={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>{pay.to}</span>
+                        <span style={{ marginLeft: 'auto', fontWeight: 800, color: '#10b981', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{formatCurrency(pay.amount, displayCurrency)}</span>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>{pay.date}</span>
+                        <button onClick={() => handleDeletePayment(pay.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', display: 'flex', alignItems: 'center' }}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* Expense Breakdown by Person */}

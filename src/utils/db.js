@@ -184,7 +184,7 @@ export async function joinVacation(code, userId) {
 
 // ============ SHARED VACATION CALCULATIONS ============
 
-export function calculateDebts(expenses, participants) {
+export function calculateDebts(expenses, participants, payments = []) {
   // Calculate how much each person paid and how much each person owes
   const balances = {};
   participants.forEach(p => { balances[p] = 0; });
@@ -200,6 +200,13 @@ export function calculateDebts(expenses, participants) {
     exp.paidFor.forEach(person => {
       balances[person] = (balances[person] || 0) - share;
     });
+  });
+
+  // Factor in recorded person-to-person payments
+  payments.forEach(pay => {
+    const amt = parseFloat(pay.amount) || 0;
+    if (balances[pay.from] !== undefined) balances[pay.from] -= amt;
+    if (balances[pay.to] !== undefined) balances[pay.to] += amt;
   });
 
   // Simplify debts
