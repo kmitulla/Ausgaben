@@ -26,7 +26,11 @@ export default function Overview() {
 
   const rates = currentVacation?.settings?.exchangeRates || { EUR: 1 };
   const displayCurrency = currentVacation?.settings?.currency || 'EUR';
-  const categories = currentVacation?.categories || [];
+  const categories = useMemo(() => {
+    const fromVacation = currentVacation?.categories || [];
+    const fromExpenses = (expenses || []).map(e => e.category).filter(Boolean);
+    return [...new Set([...fromVacation, ...fromExpenses])];
+  }, [currentVacation?.categories, expenses]);
   const kpis = currentVacation?.kpis || [];
   const charts = currentVacation?.charts || [];
 

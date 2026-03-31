@@ -392,13 +392,13 @@ export default function Expenses() {
                   <div ref={el => inputRefs.current[field.key] = el} tabIndex={0} onKeyDown={e => handleKeyDown(e, field.key)} style={{ display: 'flex', flexDirection: 'column', gap: 8, outline: 'none' }}>
                     {/* Split mode toggle */}
                     <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                      {['equal', 'amount'].map(mode => (
+                      {['equal', 'percent', 'amount'].map(mode => (
                         <button key={mode} type="button"
                           onClick={() => setFormData(prev => ({ ...prev, splitMode: mode }))}
                           style={{ padding: '4px 10px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                             background: (formData.splitMode || 'equal') === mode ? '#0ea5e9' : '#f1f5f9',
                             color: (formData.splitMode || 'equal') === mode ? '#fff' : '#64748b' }}>
-                          {mode === 'equal' ? 'Gleich' : 'Betrag'}
+                          {mode === 'equal' ? 'Gleich' : mode === 'percent' ? 'Prozent' : 'Betrag'}
                         </button>
                       ))}
                     </div>
@@ -442,6 +442,16 @@ export default function Expenses() {
                               {p}
                             </label>
 
+                            {/* Percent input when splitMode=percent */}
+                            {splitMode === 'percent' && isChecked && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*"
+                                  value={formData.paidForShares?.[p] ?? ''}
+                                  onChange={e => setFormData(prev => ({ ...prev, paidForShares: { ...(prev.paidForShares || {}), [p]: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 } }))}
+                                  style={{ ...s.input, width: 60, padding: '6px 8px', fontSize: 13, textAlign: 'right' }} />
+                                <span style={{ fontSize: 12, color: '#64748b', flexShrink: 0 }}>%</span>
+                              </div>
+                            )}
                             {/* Amount input when splitMode=amount */}
                             {splitMode === 'amount' && isChecked && (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -473,6 +483,12 @@ export default function Expenses() {
                       );
                     })}
 
+                    {/* Percent split summary */}
+                    {(formData.splitMode || 'equal') === 'percent' && (formData.paidFor || []).length > 0 && (() => {
+                      const total = (formData.paidFor || []).reduce((s, p) => s + (parseFloat(formData.paidForShares?.[p]) || 0), 0);
+                      const isOk = Math.abs(total - 100) < 0.1;
+                      return <div style={{ fontSize: 12, color: isOk ? '#16a34a' : '#ef4444', fontWeight: 600, paddingLeft: 4 }}>Summe: {total.toFixed(1)}% {!isOk && '(muss 100% ergeben)'}</div>;
+                    })()}
                     {/* Amount split summary */}
                     {(formData.splitMode || 'equal') === 'amount' && (formData.paidFor || []).length > 0 && (() => {
                       const totalAmt = parseFloat(formData.amount) || 0;
@@ -683,6 +699,11 @@ export default function Expenses() {
                   data.paidForShares = {};
                   data.paidFor.forEach(p => { data.paidForShares[p] = equalShare; });
                 }
+                if (!data.splitMode) {
+                  if (data.paidForAmounts && Object.keys(data.paidForAmounts).length > 0) data.splitMode = 'amount';
+                  else data.splitMode = 'equal';
+                }
+                if (!data.directlyPaid) data.directlyPaid = {};
                 setEditData(data);
               }}
             >
@@ -849,77 +870,96 @@ export default function Expenses() {
                   <div style={{ marginBottom: 14 }}>
                     <label style={s.label}>Bezahlt für</label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {/* Split mode toggle */}
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {['equal', 'percent', 'amount'].map(mode => (
+                          <button key={mode} type="button"
+                            onClick={() => setEditData(prev => ({ ...prev, splitMode: mode }))}
+                            style={{ padding: '4px 10px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                              background: (editData.splitMode || 'equal') === mode ? '#0ea5e9' : '#f1f5f9',
+                              color: (editData.splitMode || 'equal') === mode ? '#fff' : '#64748b' }}>
+                            {mode === 'equal' ? 'Gleich' : mode === 'percent' ? 'Prozent' : 'Betrag'}
+                          </button>
+                        ))}
+                      </div>
                       {participants.map(p => {
                         const isChecked = (editData.paidFor || []).includes(p);
-                        const percentageSplits = currentVacation?.settings?.percentageSplits;
+                        const splitMode = editData.splitMode || 'equal';
+                        const isDirectlyPaid = editData.directlyPaid?.[p] || false;
                         return (
-                          <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <label style={{
-                              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px',
-                              borderRadius: 10, cursor: 'pointer', fontSize: 13,
-                              background: isChecked ? '#e0f2fe' : '#f1f5f9',
-                              color: isChecked ? '#0284c7' : '#64748b',
-                              border: `2px solid ${isChecked ? '#0ea5e9' : 'transparent'}`,
-                              transition: 'all 0.2s', flex: 1,
-                            }}>
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={e => {
-                                  const cur = editData.paidFor || [];
-                                  const newPaidFor = e.target.checked ? [...cur, p] : cur.filter(x => x !== p);
-                                  const newShares = { ...(editData.paidForShares || {}) };
-                                  if (e.target.checked) {
-                                    const equalShare = parseFloat((100 / newPaidFor.length).toFixed(2));
-                                    newPaidFor.forEach(pp => { newShares[pp] = equalShare; });
-                                  } else {
-                                    delete newShares[p];
-                                    if (newPaidFor.length > 0) {
-                                      const equalShare = parseFloat((100 / newPaidFor.length).toFixed(2));
-                                      newPaidFor.forEach(pp => { newShares[pp] = equalShare; });
-                                    }
-                                  }
-                                  setEditData(prev => ({
-                                    ...prev,
-                                    paidFor: newPaidFor,
-                                    paidForShares: newShares,
-                                  }));
-                                }}
-                                style={{ display: 'none' }}
-                              />
-                              {isChecked && <Check size={12} />}
-                              {p}
-                            </label>
-                            {percentageSplits && isChecked && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  pattern="[0-9]*\.?[0-9]*"
-                                  value={editData.paidForShares?.[p] ?? ''}
+                          <div key={p} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <label style={{
+                                display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px',
+                                borderRadius: 10, cursor: 'pointer', fontSize: 13,
+                                background: isChecked ? '#e0f2fe' : '#f1f5f9',
+                                color: isChecked ? '#0284c7' : '#64748b',
+                                border: `2px solid ${isChecked ? '#0ea5e9' : 'transparent'}`,
+                                transition: 'all 0.2s', flex: 1,
+                              }}>
+                                <input type="checkbox" checked={isChecked}
                                   onChange={e => {
-                                    const val = e.target.value;
-                                    setEditData(prev => ({
-                                      ...prev,
-                                      paidForShares: { ...(prev.paidForShares || {}), [p]: val === '' ? '' : parseFloat(val) || 0 },
-                                    }));
+                                    const cur = editData.paidFor || [];
+                                    const newPaidFor = e.target.checked ? [...cur, p] : cur.filter(x => x !== p);
+                                    const newShares = { ...(editData.paidForShares || {}) };
+                                    if (e.target.checked) {
+                                      const eq = parseFloat((100 / newPaidFor.length).toFixed(2));
+                                      newPaidFor.forEach(pp => { newShares[pp] = eq; });
+                                    } else {
+                                      delete newShares[p];
+                                      if (newPaidFor.length > 0) {
+                                        const eq = parseFloat((100 / newPaidFor.length).toFixed(2));
+                                        newPaidFor.forEach(pp => { newShares[pp] = eq; });
+                                      }
+                                    }
+                                    const newDirectly = { ...(editData.directlyPaid || {}) };
+                                    if (!e.target.checked) delete newDirectly[p];
+                                    setEditData(prev => ({ ...prev, paidFor: newPaidFor, paidForShares: newShares, directlyPaid: newDirectly }));
                                   }}
-                                  style={{ ...s.input, width: 60, padding: '6px 8px', fontSize: 13, textAlign: 'right' }}
-                                />
-                                <span style={{ fontSize: 13, color: '#64748b' }}>%</span>
-                              </div>
+                                  style={{ display: 'none' }} />
+                                {isChecked && <Check size={12} />}
+                                {p}
+                              </label>
+                              {splitMode === 'percent' && isChecked && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                  <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*"
+                                    value={editData.paidForShares?.[p] ?? ''}
+                                    onChange={e => setEditData(prev => ({ ...prev, paidForShares: { ...(prev.paidForShares || {}), [p]: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 } }))}
+                                    style={{ ...s.input, width: 60, padding: '6px 8px', fontSize: 13, textAlign: 'right' }} />
+                                  <span style={{ fontSize: 12, color: '#64748b' }}>%</span>
+                                </div>
+                              )}
+                              {splitMode === 'amount' && isChecked && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                  <input type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00"
+                                    value={editData.paidForAmounts?.[p] ?? ''}
+                                    onChange={e => setEditData(prev => ({ ...prev, paidForAmounts: { ...(prev.paidForAmounts || {}), [p]: e.target.value === '' ? '' : e.target.value } }))}
+                                    style={{ ...s.input, width: 70, padding: '6px 8px', fontSize: 13, textAlign: 'right' }} />
+                                  <span style={{ fontSize: 12, color: '#64748b', flexShrink: 0 }}>{currencySymbols[editData.currency] || editData.currency}</span>
+                                </div>
+                              )}
+                            </div>
+                            {isChecked && p !== editData.paidBy && (
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 12, cursor: 'pointer', fontSize: 12, color: isDirectlyPaid ? '#16a34a' : '#94a3b8', fontWeight: isDirectlyPaid ? 600 : 400 }}>
+                                <input type="checkbox" checked={isDirectlyPaid}
+                                  onChange={e => setEditData(prev => ({ ...prev, directlyPaid: { ...(prev.directlyPaid || {}), [p]: e.target.checked } }))} />
+                                {p} hat direkt bezahlt
+                              </label>
                             )}
                           </div>
                         );
                       })}
-                      {currentVacation?.settings?.percentageSplits && (editData.paidFor || []).length > 0 && (() => {
-                        const total = (editData.paidFor || []).reduce((sum, p) => sum + (parseFloat(editData.paidForShares?.[p]) || 0), 0);
-                        const isValid = Math.abs(total - 100) < 0.1;
-                        return (
-                          <div style={{ fontSize: 12, color: isValid ? '#16a34a' : '#ef4444', fontWeight: 600, paddingLeft: 4 }}>
-                            Summe: {total.toFixed(1)}% {!isValid && '(muss 100% ergeben)'}
-                          </div>
-                        );
+                      {(editData.splitMode || 'equal') === 'percent' && (editData.paidFor || []).length > 0 && (() => {
+                        const total = (editData.paidFor || []).reduce((s, p) => s + (parseFloat(editData.paidForShares?.[p]) || 0), 0);
+                        const isOk = Math.abs(total - 100) < 0.1;
+                        return <div style={{ fontSize: 12, color: isOk ? '#16a34a' : '#ef4444', fontWeight: 600, paddingLeft: 4 }}>Summe: {total.toFixed(1)}% {!isOk && '(muss 100% ergeben)'}</div>;
+                      })()}
+                      {(editData.splitMode || 'equal') === 'amount' && (editData.paidFor || []).length > 0 && (() => {
+                        const totalAmt = parseFloat(editData.amount) || 0;
+                        const allocated = (editData.paidFor || []).reduce((s, p) => s + (parseFloat(editData.paidForAmounts?.[p]) || 0), 0);
+                        const remaining = totalAmt - allocated;
+                        const isOk = Math.abs(remaining) < 0.02;
+                        return <div style={{ fontSize: 12, color: isOk ? '#16a34a' : '#f59e0b', fontWeight: 600, paddingLeft: 4 }}>Zugeteilt: {allocated.toFixed(2)} / {totalAmt.toFixed(2)} {currencySymbols[editData.currency] || editData.currency}{!isOk && ` (Rest: ${remaining.toFixed(2)})`}</div>;
                       })()}
                     </div>
                   </div>
